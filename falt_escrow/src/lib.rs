@@ -1,17 +1,9 @@
 use anchor_lang::{
     prelude::*,
-    solana_program::{program::invoke, system_instruction::transfer},
+    solana_program::{program::invoke, pubkey, pubkey::Pubkey, system_instruction::transfer},
 };
 
-mod access;
-mod constants;
-mod data;
-mod error;
-mod helper;
-
-use crate::{access::*, constants::*, data::*, error::*, helper::*};
-
-declare_id!("6YTFNWGqd7GhW5WSUXcemKDAxhGAfj9ktf9B28J8J1ix");
+declare_id!("4kCaZsxqBebDjQHyA98rSUJcfJQYuD7YVhnPzUVN1P1g");
 
 #[program]
 mod hello_anchor {
@@ -180,4 +172,192 @@ mod hello_anchor {
 
         Ok(())
     }
+}
+
+pub const FACTORY_SEED: &str = "factoryinitone";
+pub const ESCROW_SEED: &str = "escrowinitone";
+pub const SIX_MONTHS: i64 = 6 * 2629743;
+pub const MIN_AMOUNT: u64 = 1000000000;
+pub const COMMISION_RATE: u64 = 5;
+pub const COMMISSION_PUBKEY: Pubkey = pubkey!("BpvinfQbUZ7HbxnLvFYGvWG1hgqHUL6gQP5REKi5LcJi");
+
+#[derive(Accounts)]
+pub struct InitFactory<'info> {
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + 8,
+        seeds = [FACTORY_SEED.as_bytes()],
+        bump,
+    )]
+    pub factory: Account<'info, Factory>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[account]
+pub struct Factory {
+    pub last_id: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+pub enum State {
+    INIT,
+    FUNDED,
+    ACCEPTED,
+    RELEASED,
+    REFUNDED,
+    WITHDRAWN,
+}
+
+#[account]
+pub struct Escrow {
+    pub owner: Pubkey,
+    pub seller: Option<Pubkey>,
+    pub commissionwallet: Pubkey,
+    pub minimumescrow_amount: u64,
+    pub commissionrate: u64,
+    pub state: State,
+    pub deposit_time: i64,
+    pub amount_in_escrow: u64,
+    pub id: u64,
+}
+
+#[derive(Accounts)]
+pub struct RealeseFund<'info> {
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    #[account(mut)]
+    pub reciever: AccountInfo<'info>,
+    #[account(mut)]
+    pub commision_account: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct EscrowParty<'info> {
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct EscrowParties<'info> {
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeEscrow<'info> {
+    #[account(
+        init,
+        payer = payer,
+        space = 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8  + 8 + 8 + 8,
+        seeds = [ESCROW_SEED.as_bytes(), &(factory.last_id + 1).to_le_bytes()],
+        bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [FACTORY_SEED.as_bytes()],
+        bump,
+    )]
+    pub factory: Account<'info, Factory>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[error_code]
+pub enum EscrowError {
+    #[msg("Inavlid time range")]
+    InvalidTimeRange,
+    #[msg("Inavlid time commissionrate")]
+    InvalidCommisionRate,
+    #[msg("Inavlid time minimumescrow_amount")]
+    InvalidEscrowAmount,
+    #[msg("Signer address is not valid")]
+    InvalidSigner,
+    #[msg("Escrow has invalid state")]
+    InvalidEscrowState,
+    #[msg("Buyer and seller cant be the same public key")]
+    SameBuyerSeller,
+    #[msg("Buyer public key error")]
+    NoValidBuyer,
+    #[msg("Seller public key error")]
+    NoValidSeller,
+    #[msg("Deposit does not meet minimum required amount")]
+    InvalidDeposit,
+    #[msg("Invalid signer address")]
+    InvalidAdress,
+    #[msg("Invalid address")]
+    WrongAddress,
+}
+
+pub fn verify_minimumamount(f1: u64, f2: u64) -> Result<()> {
+    if f1 < f2 {
+        return err!(EscrowError::InvalidDeposit);
+    }
+    Ok(())
+}
+
+pub fn verify_owner(owner: Pubkey, signer: Pubkey) -> Result<()> {
+    if owner != signer {
+        return err!(EscrowError::InvalidSigner);
+    }
+    Ok(())
+}
+
+pub fn verify_wallet(a1: Pubkey, a2: Pubkey) -> Result<()> {
+    if a1 != a2 {
+        return err!(EscrowError::WrongAddress);
+    }
+    Ok(())
+}
+
+pub fn verify_unique_address(a1: Pubkey, a2: Pubkey) -> Result<()> {
+    if a1 == a2 {
+        return err!(EscrowError::SameBuyerSeller);
+    }
+    Ok(())
+}
+
+pub fn verify_seller(seller: Option<Pubkey>) -> Result<()> {
+    if seller == None {
+        return err!(EscrowError::InvalidAdress);
+    }
+    Ok(())
+}
+
+pub fn calculate_amount_totransfer(deal_amount: u64, commision_rate: u64) -> (u64, u64) {
+    let commition_amount = deal_amount.checked_mul(commision_rate.into()).unwrap() / 100;
+    let reciever_amount = deal_amount - commition_amount;
+
+    return (reciever_amount, commition_amount);
 }

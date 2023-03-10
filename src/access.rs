@@ -29,8 +29,8 @@ pub fn verify_unique_address(a1: Pubkey, a2: Pubkey) -> Result<()> {
     Ok(())
 }
 
-pub fn verify_buyer_seller(buyer: Option<Pubkey>, seller: Option<Pubkey>) -> Result<()> {
-    if buyer == None || seller == None {
+pub fn verify_seller( seller: Option<Pubkey>) -> Result<()> {
+    if seller == None {
         return err!(EscrowError::InvalidAdress);
     }
     Ok(())

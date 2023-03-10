@@ -36,7 +36,6 @@ pub enum State {
 #[account]
 pub struct Escrow {
     pub owner: Pubkey,
-    pub buyer: Option<Pubkey>,
     pub seller: Option<Pubkey>,
     pub commissionwallet: Pubkey,
     pub minimumescrow_amount: u64,
