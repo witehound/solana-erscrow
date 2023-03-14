@@ -21,19 +21,28 @@ mod hello_anchor {
         Ok(())
     }
 
+    pub fn new_escrow_id(ctx: Context<NewUid>, uuid: String) -> Result<()> {
+        let f = &mut ctx.accounts.factory;
+        let nu = &mut ctx.accounts.escrowid;
+
+        f.last_id += 1;
+        nu.uuid = uuid;
+        nu.id = f.last_id;
+
+        Ok(())
+    }
+
     pub fn initialize_deal(ctx: Context<InitializeEscrow>) -> Result<()> {
         let es = &mut ctx.accounts.escrow;
         let s = &ctx.accounts.payer;
-        let f = &mut ctx.accounts.factory;
-
-        f.last_id += 1;
+        let nu = &ctx.accounts.escrowid;
 
         es.state = State::INIT;
         es.owner = s.key();
         es.commissionrate = COMMISION_RATE;
         es.minimumescrow_amount = MIN_AMOUNT;
         es.commissionwallet = COMMISSION_PUBKEY;
-        es.id = f.last_id;
+        es.id = nu.uuid.clone();
 
         Ok(())
     }

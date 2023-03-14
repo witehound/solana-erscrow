@@ -13,19 +13,28 @@ mod hello_anchor {
         Ok(())
     }
 
+    pub fn new_escrow_id(ctx: Context<NewUid>, uuid: String) -> Result<()> {
+        let f = &mut ctx.accounts.factory;
+        let nu = &mut ctx.accounts.escrowid;
+
+        f.last_id += 1;
+        nu.uuid = uuid;
+        nu.id = f.last_id;
+
+        Ok(())
+    }
+
     pub fn initialize_deal(ctx: Context<InitializeEscrow>) -> Result<()> {
         let es = &mut ctx.accounts.escrow;
         let s = &ctx.accounts.payer;
-        let f = &mut ctx.accounts.factory;
-
-        f.last_id += 1;
+        let nu = &ctx.accounts.escrowid;
 
         es.state = State::INIT;
         es.owner = s.key();
         es.commissionrate = COMMISION_RATE;
         es.minimumescrow_amount = MIN_AMOUNT;
         es.commissionwallet = COMMISSION_PUBKEY;
-        es.id = f.last_id;
+        es.id = nu.uuid.clone();
 
         Ok(())
     }
@@ -184,9 +193,16 @@ mod hello_anchor {
     }
 }
 
+pub fn calculate_amount_totransfer(deal_amount: u64, commision_rate: u64) -> (u64, u64) {
+    let commition_amount = deal_amount.checked_mul(commision_rate.into()).unwrap() / 100;
+    let reciever_amount = deal_amount - commition_amount;
+
+    return (reciever_amount, commition_amount);
+}
+
 pub const FACTORY_SEED: &str = "factoryinitone";
 pub const ESCROW_SEED: &str = "escrowinitone";
-pub const SIX_MONTHS: i64 = 6 * 2629743;
+pub const SIX_MONTHS: i64 = 300;
 pub const MIN_AMOUNT: u64 = 1000000000;
 pub const COMMISION_RATE: u64 = 5;
 pub const COMMISSION_PUBKEY: Pubkey = pubkey!("BpvinfQbUZ7HbxnLvFYGvWG1hgqHUL6gQP5REKi5LcJi");
@@ -212,6 +228,12 @@ pub struct Factory {
     pub last_id: u64,
 }
 
+#[account]
+pub struct EscrowId {
+    pub uuid: String,
+    pub id: u64,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum State {
     INIT,
@@ -233,7 +255,7 @@ pub struct Escrow {
     pub state: State,
     pub deposit_time: i64,
     pub amount_in_escrow: u64,
-    pub id: u64,
+    pub id: String,
     pub commission_amount: u64,
     pub released_amount: u64,
 }
@@ -242,7 +264,7 @@ pub struct Escrow {
 pub struct RealeseFund<'info> {
     #[account(
         mut,
-        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        seeds = [ escrow.id.as_bytes()],
         bump,
     )]
     pub escrow: Account<'info, Escrow>,
@@ -257,10 +279,31 @@ pub struct RealeseFund<'info> {
 }
 
 #[derive(Accounts)]
+pub struct NewUid<'info> {
+    #[account(
+        init,
+        payer = signer,
+        space = 64 + 8,
+        seeds = [ESCROW_SEED.as_bytes(), &(factory.last_id + 1).to_le_bytes()],
+        bump,
+    )]
+    pub escrowid: Account<'info, EscrowId>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [FACTORY_SEED.as_bytes()],
+        bump,
+    )]
+    pub factory: Account<'info, Factory>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct WithdrawFund<'info> {
     #[account(
         mut,
-        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        seeds = [escrow.id.as_bytes()],
         bump,
     )]
     pub escrow: Account<'info, Escrow>,
@@ -275,12 +318,13 @@ pub struct WithdrawFund<'info> {
 pub struct EscrowParty<'info> {
     #[account(
         mut,
-        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        seeds = [ escrow.id.as_bytes()],
         bump,
     )]
     pub escrow: Account<'info, Escrow>,
     #[account(mut)]
     pub signer: Signer<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -288,7 +332,7 @@ pub struct EscrowParty<'info> {
 pub struct EscrowParties<'info> {
     #[account(
         mut,
-        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        seeds = [ escrow.id.as_bytes()],
         bump,
     )]
     pub escrow: Account<'info, Escrow>,
@@ -303,8 +347,8 @@ pub struct InitializeEscrow<'info> {
     #[account(
         init,
         payer = payer,
-        space = 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8  + 8 + 8 + 8,
-        seeds = [ESCROW_SEED.as_bytes(), &(factory.last_id + 1).to_le_bytes()],
+        space = 32 + 32 + 32 + 32 + 32 + 32 + 8 + 8  + 8 + 64 + 8 + 8 +  8,
+        seeds = [escrowid.uuid.as_bytes()],
         bump,
     )]
     pub escrow: Account<'info, Escrow>,
@@ -313,11 +357,12 @@ pub struct InitializeEscrow<'info> {
     pub payer: Signer<'info>,
 
     #[account(
+     
         mut,
-        seeds = [FACTORY_SEED.as_bytes()],
+        seeds = [ESCROW_SEED.as_bytes(), &escrowid.id.to_le_bytes()],
         bump,
     )]
-    pub factory: Account<'info, Factory>,
+    pub escrowid: Account<'info, EscrowId>,
 
     pub system_program: Program<'info, System>,
 }
@@ -376,16 +421,9 @@ pub fn verify_unique_address(a1: Pubkey, a2: Pubkey) -> Result<()> {
     Ok(())
 }
 
-pub fn verify_seller(seller: Option<Pubkey>) -> Result<()> {
+pub fn verify_seller( seller: Option<Pubkey>) -> Result<()> {
     if seller == None {
         return err!(EscrowError::InvalidAdress);
     }
     Ok(())
-}
-
-pub fn calculate_amount_totransfer(deal_amount: u64, commision_rate: u64) -> (u64, u64) {
-    let commition_amount = deal_amount.checked_mul(commision_rate.into()).unwrap() / 100;
-    let reciever_amount = deal_amount - commition_amount;
-
-    return (reciever_amount, commition_amount);
 }
