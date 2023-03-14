@@ -3,7 +3,7 @@ use anchor_lang::{
     solana_program::{program::invoke, pubkey, pubkey::Pubkey, system_instruction::transfer},
 };
 
-declare_id!("4kCaZsxqBebDjQHyA98rSUJcfJQYuD7YVhnPzUVN1P1g");
+declare_id!("8pZkBXTmvLdudXm5R7JmtihPJ3C5anAd6N9EvGZzBJ3n");
 
 #[program]
 mod hello_anchor {
@@ -122,13 +122,17 @@ mod hello_anchor {
 
         es.amount_in_escrow = 0;
         es.state = State::RELEASED;
+        es.commission_amount = commision_amount;
+        es.released_amount = signer_amount;
+        es.realesed_by = Some(s.key());
 
         Ok(())
     }
 
-    pub fn withdraw_fund(ctx: Context<EscrowParty>) -> Result<()> {
+    pub fn withdraw_fund(ctx: Context<WithdrawFund>) -> Result<()> {
         let es = &mut ctx.accounts.escrow;
         let s = &ctx.accounts.signer;
+        let cs = &ctx.accounts.commision_account;
 
         verify_owner(es.owner, s.key())?;
 
@@ -136,14 +140,20 @@ mod hello_anchor {
             return err!(EscrowError::InvalidEscrowState);
         }
 
-        let (signer_amount, _commision_amount) =
+        let (signer_amount, commision_amount) =
             calculate_amount_totransfer(es.amount_in_escrow, es.commissionrate);
 
         **es.to_account_info().try_borrow_mut_lamports()? -= signer_amount;
         **s.to_account_info().try_borrow_mut_lamports()? += signer_amount;
 
+        **es.to_account_info().try_borrow_mut_lamports()? -= commision_amount;
+        **cs.to_account_info().try_borrow_mut_lamports()? += commision_amount;
+
         es.amount_in_escrow = 0;
         es.state = State::REFUNDED;
+        es.commission_amount = commision_amount;
+        es.released_amount = signer_amount;
+        es.realesed_by = Some(s.key());
 
         Ok(())
     }
@@ -216,6 +226,7 @@ pub enum State {
 pub struct Escrow {
     pub owner: Pubkey,
     pub seller: Option<Pubkey>,
+    pub realesed_by: Option<Pubkey>,
     pub commissionwallet: Pubkey,
     pub minimumescrow_amount: u64,
     pub commissionrate: u64,
@@ -223,6 +234,8 @@ pub struct Escrow {
     pub deposit_time: i64,
     pub amount_in_escrow: u64,
     pub id: u64,
+    pub commission_amount: u64,
+    pub released_amount: u64,
 }
 
 #[derive(Accounts)]
@@ -238,6 +251,21 @@ pub struct RealeseFund<'info> {
 
     #[account(mut)]
     pub reciever: AccountInfo<'info>,
+    #[account(mut)]
+    pub commision_account: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawFund<'info> {
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
     #[account(mut)]
     pub commision_account: AccountInfo<'info>,
     pub system_program: Program<'info, System>,

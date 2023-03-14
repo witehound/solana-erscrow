@@ -11,7 +11,7 @@ mod helper;
 
 use crate::{access::*, constants::*, data::*, error::*, helper::*};
 
-declare_id!("6YTFNWGqd7GhW5WSUXcemKDAxhGAfj9ktf9B28J8J1ix");
+declare_id!("8pZkBXTmvLdudXm5R7JmtihPJ3C5anAd6N9EvGZzBJ3n");
 
 #[program]
 mod hello_anchor {
@@ -130,13 +130,17 @@ mod hello_anchor {
 
         es.amount_in_escrow = 0;
         es.state = State::RELEASED;
+        es.commission_amount = commision_amount;
+        es.released_amount = signer_amount;
+        es.realesed_by = Some(s.key());
 
         Ok(())
     }
 
-    pub fn withdraw_fund(ctx: Context<EscrowParty>) -> Result<()> {
+    pub fn withdraw_fund(ctx: Context<WithdrawFund>) -> Result<()> {
         let es = &mut ctx.accounts.escrow;
         let s = &ctx.accounts.signer;
+        let cs = &ctx.accounts.commision_account;
 
         verify_owner(es.owner, s.key())?;
 
@@ -144,14 +148,20 @@ mod hello_anchor {
             return err!(EscrowError::InvalidEscrowState);
         }
 
-        let (signer_amount, _commision_amount) =
+        let (signer_amount, commision_amount) =
             calculate_amount_totransfer(es.amount_in_escrow, es.commissionrate);
 
         **es.to_account_info().try_borrow_mut_lamports()? -= signer_amount;
         **s.to_account_info().try_borrow_mut_lamports()? += signer_amount;
 
+        **es.to_account_info().try_borrow_mut_lamports()? -= commision_amount;
+        **cs.to_account_info().try_borrow_mut_lamports()? += commision_amount;
+
         es.amount_in_escrow = 0;
         es.state = State::REFUNDED;
+        es.commission_amount = commision_amount;
+        es.released_amount = signer_amount;
+        es.realesed_by = Some(s.key());
 
         Ok(())
     }

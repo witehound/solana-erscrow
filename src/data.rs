@@ -37,6 +37,7 @@ pub enum State {
 pub struct Escrow {
     pub owner: Pubkey,
     pub seller: Option<Pubkey>,
+    pub realesed_by : Option<Pubkey>,
     pub commissionwallet: Pubkey,
     pub minimumescrow_amount: u64,
     pub commissionrate: u64,
@@ -44,6 +45,8 @@ pub struct Escrow {
     pub deposit_time: i64,
     pub amount_in_escrow: u64,
     pub id: u64,
+    pub commission_amount : u64,
+    pub released_amount : u64,
 }
 
 #[derive(Accounts)]
@@ -59,6 +62,21 @@ pub struct RealeseFund<'info> {
 
     #[account(mut)]
     pub reciever: AccountInfo<'info>,
+    #[account(mut)]
+    pub commision_account: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawFund<'info> {
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED.as_bytes(), &escrow.id.to_le_bytes()],
+        bump,
+    )]
+    pub escrow: Account<'info, Escrow>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
     #[account(mut)]
     pub commision_account: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
